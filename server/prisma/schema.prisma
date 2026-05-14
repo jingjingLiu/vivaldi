@@ -1,0 +1,343 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------
+// Enums
+// -----------------------------------------------------------
+
+enum Role {
+  coordinator
+  screener
+  interviewer
+}
+
+enum Gender {
+  male
+  female
+}
+
+enum CandidateStatus {
+  new
+  waiting_for_oa
+  oa_completed
+  wait_to_confirm_date
+  date_confirmed
+  human_completed
+  oa_failed
+  oa_no_response
+  give_up_for_human
+  rejected
+  passed
+}
+
+enum AnswerType {
+  text
+  code
+}
+
+enum EvalResult {
+  passed
+  failed
+}
+
+enum NotificationType {
+  email
+  sms
+}
+
+enum DeliveryStatus {
+  pending
+  sent
+  failed
+}
+
+enum UserNotificationEvent {
+  oa_completed
+  interview_booked
+}
+
+// -----------------------------------------------------------
+// Users & Roles
+// -----------------------------------------------------------
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique @db.VarChar(50)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  name         String   @db.VarChar(100)
+  enabled      Boolean  @default(true)
+  locale       String   @default("zhCN") @db.VarChar(10)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  roles                UserRole[]
+  timeSlots            TimeSlot[]
+  statusHistories      StatusHistory[]
+  evaluations          Evaluation[]
+  positionAssignments  PositionInterviewer[]
+  userNotifications    UserNotification[]
+
+  @@map("users")
+}
+
+model UserRole {
+  id     Int  @id @default(autoincrement())
+  userId Int  @map("user_id")
+  role   Role
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@map("user_roles")
+}
+
+// -----------------------------------------------------------
+// Positions
+// -----------------------------------------------------------
+
+model Position {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  interviewers PositionInterviewer[]
+  candidates   Candidate[]
+  oaForm       OaForm?
+
+  @@map("positions")
+}
+
+model PositionInterviewer {
+  id         Int @id @default(autoincrement())
+  positionId Int @map("position_id")
+  userId     Int @map("user_id")
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, userId])
+  @@map("position_interviewers")
+}
+
+// -----------------------------------------------------------
+// Candidates
+// -----------------------------------------------------------
+
+model Candidate {
+  id             Int             @id @default(autoincrement())
+  name           String?         @db.VarChar(100)
+  gender         Gender?
+  email          String?         @db.VarChar(255)
+  phone          String?         @db.VarChar(20)
+  positionId     Int             @map("position_id")
+  status         CandidateStatus @default(new)
+  oneTimeCode    String          @unique @map("one_time_code") @db.VarChar(10)
+  oaDeadline     DateTime?       @map("oa_deadline")
+  resumeMarkdown String?         @map("resume_markdown") @db.Text
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  position         Position          @relation(fields: [positionId], references: [id])
+  resumeFile       ResumeFile?
+  oaSubmission     OaSubmission?
+  bookedTimeSlot   TimeSlot?
+  statusHistories  StatusHistory[]
+  evaluations      Evaluation[]
+  notificationLogs NotificationLog[]
+  userNotifications UserNotification[]
+
+  @@index([status])
+  @@index([positionId])
+  @@map("candidates")
+}
+
+model ResumeFile {
+  id               Int      @id @default(autoincrement())
+  candidateId      Int      @unique @map("candidate_id")
+  originalFilename String   @map("original_filename") @db.VarChar(255)
+  storedFilename   String   @map("stored_filename") @db.VarChar(255)
+  mimeType         String   @map("mime_type") @db.VarChar(100)
+  fileSize         Int      @map("file_size")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("resume_files")
+}
+
+// -----------------------------------------------------------
+// OA
+// -----------------------------------------------------------
+
+model OaForm {
+  id               Int      @id @default(autoincrement())
+  positionId       Int      @unique @map("position_id")
+  timeLimitMinutes Int      @map("time_limit_minutes")
+  instructionEn    String?  @map("instruction_en") @db.Text
+  instructionZh    String?  @map("instruction_zh") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  position  Position     @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  questions OaQuestion[]
+
+  @@map("oa_forms")
+}
+
+model OaQuestion {
+  id           Int        @id @default(autoincrement())
+  formId       Int        @map("form_id")
+  sortOrder    Int        @map("sort_order")
+  questionText String     @map("question_text") @db.Text
+  answerType   AnswerType @map("answer_type")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  form    OaForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  answers OaAnswer[]
+
+  @@unique([formId, sortOrder])
+  @@map("oa_questions")
+}
+
+model OaSubmission {
+  id             Int       @id @default(autoincrement())
+  candidateId    Int       @unique @map("candidate_id")
+  startedAt      DateTime? @map("started_at")
+  submittedAt    DateTime? @map("submitted_at")
+  autoSubmitted  Boolean   @default(false) @map("auto_submitted")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  answers   OaAnswer[]
+
+  @@map("oa_submissions")
+}
+
+model OaAnswer {
+  id            Int      @id @default(autoincrement())
+  submissionId  Int      @map("submission_id")
+  questionId    Int      @map("question_id")
+  answerContent String?  @map("answer_content") @db.Text
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  submission OaSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  question   OaQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, questionId])
+  @@map("oa_answers")
+}
+
+// -----------------------------------------------------------
+// Time Slots
+// -----------------------------------------------------------
+
+model TimeSlot {
+  id             Int      @id @default(autoincrement())
+  interviewerId  Int      @map("interviewer_id")
+  date           DateTime @db.Date
+  startTime      DateTime @map("start_time") @db.Time
+  endTime        DateTime @map("end_time") @db.Time
+  candidateId    Int?     @unique @map("candidate_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  interviewer User       @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
+  candidate   Candidate? @relation(fields: [candidateId], references: [id])
+
+  @@index([interviewerId, date])
+  @@map("time_slots")
+}
+
+// -----------------------------------------------------------
+// Status History & Evaluations
+// -----------------------------------------------------------
+
+model StatusHistory {
+  id          Int              @id @default(autoincrement())
+  candidateId Int              @map("candidate_id")
+  fromStatus  CandidateStatus? @map("from_status")
+  toStatus    CandidateStatus  @map("to_status")
+  operatorId  Int?             @map("operator_id")
+  note        String?          @db.Text
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  operator  User?     @relation(fields: [operatorId], references: [id])
+
+  @@index([candidateId])
+  @@map("status_histories")
+}
+
+model Evaluation {
+  id            Int        @id @default(autoincrement())
+  candidateId   Int        @map("candidate_id")
+  interviewerId Int        @map("interviewer_id")
+  result        EvalResult
+  comment       String?    @db.Text
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  interviewer User      @relation(fields: [interviewerId], references: [id])
+
+  @@index([candidateId])
+  @@index([interviewerId])
+  @@map("evaluations")
+}
+
+// -----------------------------------------------------------
+// Notifications & System Settings
+// -----------------------------------------------------------
+
+model NotificationLog {
+  id             Int              @id @default(autoincrement())
+  candidateId    Int              @map("candidate_id")
+  type           NotificationType
+  triggerEvent   String           @map("trigger_event") @db.VarChar(100)
+  recipient      String           @db.VarChar(255)
+  subject        String?          @db.VarChar(255)
+  content        String           @db.Text
+  deliveryStatus DeliveryStatus   @default(pending) @map("delivery_status")
+  sentAt         DateTime?        @map("sent_at")
+  errorMessage   String?          @map("error_message") @db.Text
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@map("notification_logs")
+}
+
+model UserNotification {
+  id          Int                   @id @default(autoincrement())
+  userId      Int                   @map("user_id")
+  candidateId Int?                  @map("candidate_id")
+  event       UserNotificationEvent
+  title       String                @db.VarChar(255)
+  content     String                @db.Text
+  readAt      DateTime?             @map("read_at")
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  candidate Candidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, candidateId, event])
+  @@index([userId, readAt, createdAt])
+  @@index([candidateId])
+  @@map("user_notifications")
+}
+
+model SystemSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique @db.VarChar(50)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
