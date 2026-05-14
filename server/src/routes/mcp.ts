@@ -359,7 +359,9 @@ mcpRouter.get(
 
     const principal = await authenticateForServer(req, definition);
     const sessionId = randomUUID();
-    const endpoint = `/mcp/${definition.serverId}/messages?session_id=${encodeURIComponent(sessionId)}`;
+    // 同时返回 snake_case 与 camelCase，兼容标准 MCP Client 和 bach-emcp 的 SSE sessionId 解析逻辑。
+    const encodedSessionId = encodeURIComponent(sessionId);
+    const endpoint = `/mcp/${definition.serverId}/messages?session_id=${encodedSessionId}&sessionId=${encodedSessionId}`;
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
