@@ -35,7 +35,8 @@ function setSessionCookie(res: Response, principal: AuthPrincipal): void {
   res.cookie(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
     secure: isProd,
-    sameSite: 'lax',
+    // Zeabur 前后端分别使用不同子域名，生产环境需要允许跨站 XHR 携带会话 Cookie。
+    sameSite: isProd ? 'none' : 'lax',
     maxAge: 2 * 60 * 60 * 1000,
     path: '/',
   });
