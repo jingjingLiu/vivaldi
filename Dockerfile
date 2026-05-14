@@ -10,9 +10,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# 先复制依赖声明，便于 Docker 缓存 npm ci 结果。
+# 先复制依赖声明，便于 Docker 缓存 npm ci 结果；构建阶段必须包含 TypeScript 等 devDependencies。
 COPY server/package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 FROM node:20-bookworm-slim AS build
 
